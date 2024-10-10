@@ -25,11 +25,11 @@
   },
   {
     "ParameterKey": "GitRepoName",
-    "ParameterValue": "digiroad2"
+    "ParameterValue": "digiroad-samuutus"
   },
   {
     "ParameterKey": "GitBranchName",
-    "ParameterValue": "dev-lambdaRoadLinkChangeHandler"
+    "ParameterValue": "development"
   },
   {
     "ParameterKey": "GitHubOwner",

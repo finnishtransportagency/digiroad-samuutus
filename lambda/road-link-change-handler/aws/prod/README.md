@@ -1,6 +1,6 @@
 # Tuotantoympäristön pystytys
 
-## Siirry Digiroad projektin juuresta lambda-funktion omaan kansioon
+## Siirry projektin juuresta lambda-funktion omaan kansioon
 ```
 cd lambda/road-link-change-handler
 ```
@@ -9,7 +9,7 @@ cd lambda/road-link-change-handler
 
 *HUOM.* Tarkista ennen jokaista create-stack komentoa parametritiedostojen sisältö.
 
-### Luo ECR repository [tuotantotili]
+### 1 Luo ECR repository [tuotantotili]
 ```
 aws cloudformation create-stack \
 --stack-name [esim. digiroad2-road-link-change-lambda-ecr] \
@@ -18,9 +18,7 @@ aws cloudformation create-stack \
 --tags file://aws/prod/tags.json
 ```
 
-**Repositoryn luonnin jälkeen pyydä kehitystiimiä toimittamaan sinne palvelun image ennen seuraavaa vaihetta.**
-
-### Luo tarvittavat resurssit [tuotantotili]
+### 2 Luo tarvittavat resurssit [tuotantotili]
 ```
 aws cloudformation create-stack \
 --stack-name [esim. digiroad2-road-link-change-handler] \
@@ -30,21 +28,7 @@ aws cloudformation create-stack \
 --capabilities CAPABILITY_NAMED_IAM
 ```
 
-### Laita lambdan event ajastus pois päältä [tuotantotili]
-Disabloi lambdan käynnistävä EventBridge sääntö.
-*Huom.* Varmista että eventin nimi vastaa lambda-resources.yaml:lla luotua
-```
-aws events disable-rule --name prod-digiroad2-start-road-link-change-handler-event
-```
-
-### Laita lambdan event ajastus päälle [tuotantotili]
-Laita lambdan käynnistävä EventBridge sääntö takaisin päälle siinä vaiheessa, kun lambdan toteutus on valmis.
-*Huom.* Varmista että eventin nimi vastaa lambda-resources.yaml:lla luotua
-```
-aws events enable-rule --name prod-digiroad2-start-road-link-change-handler-event
-```
-
-### Luo tuotanto pipeline [kehitystili]
+### 3 Luo tuotanto pipeline [kehitystili]
 ```
 aws cloudformation create-stack \
 --stack-name [esim. prod-digiroad2-road-link-change-pipeline] \ 
@@ -53,6 +37,22 @@ aws cloudformation create-stack \
 --tags file://aws/prod/tags.json \
 --capabilities CAPABILITY_NAMED_IAM
 ```
+
+### 4a Laita lambdan event ajastus pois päältä [tuotantotili]
+Disabloi lambdan käynnistävä EventBridge sääntö.
+*Huom.* Varmista että eventin nimi vastaa lambda-resources.yaml:lla luotua
+```
+aws events disable-rule --name prod-digiroad2-start-road-link-change-handler-event
+```
+
+### 4b Laita lambdan event ajastus päälle [tuotantotili]
+Laita lambdan käynnistävä EventBridge sääntö takaisin päälle siinä vaiheessa, kun lambdan toteutus on valmis.
+*Huom.* Varmista että eventin nimi vastaa lambda-resources.yaml:lla luotua
+```
+aws events enable-rule --name prod-digiroad2-start-road-link-change-handler-event
+```
+
+**Aja vaiheessa 3 luotu pipeline, joka puskee ensimmäisen imagen ECR:ään**
 
 
 # Kehitysympäristön päivitys

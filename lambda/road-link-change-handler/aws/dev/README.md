@@ -1,6 +1,6 @@
 # Kehitysympäristön pystytys
 
-## Siirry Digiroad projektin juuresta lambda funktion omaan kansioon
+## Siirry projektin juuresta lambda-funktion omaan kansioon
 ```
 cd lambda/road-link-change-handler
 ```

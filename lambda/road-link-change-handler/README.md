@@ -4,11 +4,11 @@ Hakee tielinkkiverkolla tapahtuneet muutokset tietyllä aikavälillä, tallentaa
 
 ## Muutokset ja Git branchit
 
-| Ympäristö | Branch                          |
-|-----------|---------------------------------|
-| dev       | dev-lambdaRoadLinkChangeHandler |
-| qa        | qa-lambdaRoadLinkChangeHandler  |
-| prod      | master                          |
+| Ympäristö | Branch      |
+|-----------|-------------|
+| dev       | development |
+| qa        | test        |
+| prod      | main        |
 
 ## Lambdojen testaaminen lokaalisti
 
@@ -41,9 +41,9 @@ region = REGION
 Koska lambda on yhteydessä Digiroadin kantaan, vaatii lokaali testaaminen yhteyden kantaan.
 
 #### Yhteys lokaaliin Digiroad kantaan
-Tarkemmat ohjeet: aws/local-dev/postgis/README.md
+Tarkemmat ohjeet: digiroad2/aws/local-dev/postgis/README.md
 ```sh
-cd ..\..\aws\local-dev\postgis
+cd ..\..\..\digiroad2\aws\local-dev\postgis #Muuta suhteellinen polku tarvittaessa niin että digiroad2 löytyy
 docker compose up -d
 cd ..\..\..\lambda\asset-history-processor
 ```

@@ -1,0 +1,291 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Template for resources that are used to fetch changes in road links.
+
+Parameters:
+  ApplicationName:
+    Description: Name of the application. Used when tagging the resources
+    Type: String
+  Environment:
+    Description: Environment where resources are created. Used when tagging the resources
+    Type: String
+    AllowedValues: ["dev", "qa", "prod"]
+  OrganizationPrefix:
+    Description: Prefix for organization
+    Type: String
+  ECRRepository:
+    Description: Name of ECR repository
+    Type: String
+  ECRImageTag:
+    Description: ECR image tag name
+    Type: String
+  NetworkStackName:
+    Description: Name of network stack
+    Type: String
+  BatchJobRoleArn:
+    Description: Batch job role arn
+    Type: String
+  VkmApi:
+    Description: VKM api url
+    Type: String
+  VkmApiKeySSM:
+    Description: VKM api key location in Parameter Store
+    Type: String
+  KgvApi:
+    Description: VKM api url
+    Type: String
+  KgvApiKeySSM:
+    Description: KGV api key location in Parameter Store
+    Type: String
+  PgHost:
+    Description: Database host
+    Type: String
+  PgPort:
+    Description: Database port
+    Type: String
+  PgDatabase:
+    Description: Database name
+    Type: String
+  PgUser:
+    Description: Database user
+    Type: String
+  BatchSize:
+    Description: Max size of cql id in query
+    Default: '160'
+    Type: String
+
+Conditions:
+  IsDev:
+    "Fn::Equals":
+      - !Ref Environment
+      - dev
+
+Resources:
+  ### S3 ###
+  ChangeBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub ${Environment}-${OrganizationPrefix}-${ApplicationName}-road-link-change-bucket
+      ObjectLockEnabled: false
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteIncompleteMultipartUploads
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+            Status: Enabled
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ApplicationName}-${Environment}-road-link-change-bucket
+
+  ChangeBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn:
+      - LambdaRole
+    Properties:
+      Bucket: !Ref ChangeBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: LambdaPolicy
+            Effect: Allow
+            Principal:
+              AWS:
+                - !GetAtt LambdaRole.Arn
+            Action:
+              - s3:ListBucket   # Needed for defining time window for changes
+              - s3:PutObject    # Allows new object uploads
+            Resource:
+              - !GetAtt ChangeBucket.Arn
+              - !Join ['', [!GetAtt ChangeBucket.Arn, '/*']]
+          - Sid: BatchPolicy
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Ref BatchJobRoleArn
+            Action:
+              - s3:ListBucket
+              - s3:GetObject
+            Resource:
+              - !GetAtt ChangeBucket.Arn
+              - !Join [ '', [ !GetAtt ChangeBucket.Arn, '/*' ] ]
+
+  ### SECURITY GROUP ###
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ApplicationName}-${Environment}-road-link-change-lambda-sg'
+      GroupName: !Sub '${ApplicationName}-${Environment}-road-link-change-lambda-sg'
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: '-1'
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: '-1'
+      VpcId:
+        Fn::ImportValue:
+          !Sub '${NetworkStackName}-VPC-Id'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ApplicationName}-${Environment}-road-link-change-lambda-sg'
+
+
+  ### LAMBDA ###
+  Lambda:
+    DependsOn: LambdaRole
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-${ApplicationName}-road-link-change-handler"
+      Description: Lambda for fetching road link changes, saving them and generating change sets
+      MemorySize: 10240 # Increase according to need
+      Timeout: 900     # Increase according to need
+      Role: !GetAtt LambdaRole.Arn
+      PackageType: Image
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}:${ECRImageTag}
+      ImageConfig:
+        Command:
+          - index.handler
+      VpcConfig:
+        SecurityGroupIds:
+          - !GetAtt SecurityGroup.GroupId
+        SubnetIds:
+          - Fn::ImportValue:
+              !Sub '${NetworkStackName}-Subnet1-Id'
+          - Fn::ImportValue:
+              !Sub '${NetworkStackName}-Subnet2-Id'
+      Environment:
+        Variables:
+          CHANGE_BUCKET:  !Sub ${Environment}-${OrganizationPrefix}-${ApplicationName}-road-link-change-bucket
+          BATCH_SIZE:     !Ref BatchSize
+          VKM_API_URL:    !Ref VkmApi
+          VKM_API_KEY:    !Ref VkmApiKeySSM
+          KGV_API_URL:    !Ref KgvApi
+          KGV_API_KEY:    !Ref KgvApiKeySSM
+          PG_HOST:        !Ref PgHost
+          PG_PORT:        !Ref PgPort
+          PG_DATABASE:    !Ref PgDatabase
+          PG_USER:        !Ref PgUser
+          PG_PW:          !Sub /${Environment}/bonecp.password
+      Tags:
+        - Key: Name
+          Value: !Sub ${ApplicationName}-${Environment}-road-link-change-lambda-role
+
+  StartLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt Lambda.Arn
+      Principal: events.amazonaws.com
+      SourceArn: !Sub arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/${Environment}-${ApplicationName}-start-road-link-change-handler-event
+
+
+  ### EVENTS ###
+  StartLambdaEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${Environment}-${ApplicationName}-start-road-link-change-handler-event"
+      Description: "Scheduled event to start fetching of road link changes"
+      ScheduleExpression: "cron(30 18 ? * 2-5 *)" # Run Monday, Tuesday, Wednesday, Thursday
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt Lambda.Arn
+          Id: !Sub "${Environment}-${ApplicationName}-road-link-change-event-target"
+
+
+  ### IAM ###
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Environment}-${ApplicationName}-road-link-change-handler-lambda-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+          - !If
+            - IsDev # Allows dev role to be assumed locally for testing purposes
+            - Effect: Allow
+              Principal:
+                AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+              Action: sts:AssumeRole
+              Condition:
+                StringLike:
+                  aws:PrincipalArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-reserved/sso.amazonaws.com/${AWS::Region}/AWSReservedSSO_DigiroadOthAdmin*"
+            - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: PutS3ObjectToBucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub arn:aws:s3:::${Environment}-${OrganizationPrefix}-${ApplicationName}-road-link-change-bucket/*
+        - PolicyName: ListS3BucketObjects
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub arn:aws:s3:::${Environment}-${OrganizationPrefix}-${ApplicationName}-road-link-change-bucket
+        - PolicyName: FetchParameterFromSSM
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter*
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${VkmApiKeySSM}
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${KgvApiKeySSM}
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Environment}/bonecp.password
+        - PolicyName: LambdaVpcAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub ${ApplicationName}-${Environment}-road-link-change-lambda-role
+
+  CloudWatchAccessPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn:
+      - LambdaRole
+    Properties:
+      PolicyName: !Sub ${Environment}-${ApplicationName}-CloudWatchAccessPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: '*'
+      Roles:
+        - !Ref LambdaRole
+
+  LambdaFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DependsOn: Lambda
+    Properties:
+      RetentionInDays: 180
+      LogGroupName: !Sub "/aws/lambda/${Lambda}"

@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Lambda for local testing purposes
+
+Resources:
+  Lambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Lambda for fetching road link changes, saving them and generating change sets
+      MemorySize: 10240
+      Timeout: 900
+      PackageType: Image
+      ImageConfig:
+        Command:
+          - index.handler
+      Environment:
+        Variables:
+          CHANGE_BUCKET: ""
+          VKM_API_URL: ""
+          VKM_API_KEY: ""
+          KGV_API_URL: ""
+          KGV_API_KEY: ""
+          PG_HOST: ""
+          PG_PORT: ""
+          PG_DATABASE: ""
+          PG_USER: ""
+          PG_PW: ""
+          BATCH_SIZE: ""
+    Metadata:
+      DockerTag: nodejs18.x-v1
+      DockerContext: ../../
+      Dockerfile: Dockerfile
